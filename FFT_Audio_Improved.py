@@ -125,7 +125,6 @@ def update_lights(matrix, columns, matrixHeight):
         for y in range(matrixHeight):
             if y < int(numPix):
                 led.set(x, matrixHeight - y - 1, led_colors[y])
-        #led.drawLine(i, _MAX_HEIGHT - 1, i, _MAX_HEIGHT - int(numPix), colors.hue_helper(int(numPix), _MAX_HEIGHT, 0))
     
     # finally update the matrix
     led.update()
@@ -146,19 +145,12 @@ def audio_in(matrixHeight, matrixWidth):
         logging.debug("device " + str(i) + " info " + str(p.get_device_info_by_index(i)))
 
     logging.debug(" default input device " + str(p.get_default_input_device_info()))
-    stream = p.open(format=FORMAT,channels=1,rate=sampleRate,input=True,frames_per_buffer=chunkSize)
+    stream = p.open(format=FORMAT,channels=inputChannels,rate=sampleRate,input=True,frames_per_buffer=chunkSize)
 
     logging.debug("Running in audio-in mode - will run until Ctrl+C is pressed")
     print "Running in audio-in mode, use Ctrl+C to stop"
     try:
         frequency_limits = calculate_channel_frequency(minFrequency, maxFrequency)
-
-        # Start with these as our initial guesses - will calculate a rolling mean / std
-        # as we get input data.
-        mean = [12.0 for _ in range(matrixWidth)]
-        std = [0.5 for _ in range(matrixWidth)]
-        recent_samples = np.empty((250, matrixWidth))
-        num_samples = 0
 
         # Listen on the audio input device until CTRL-C is pressed
         while True:
@@ -182,32 +174,6 @@ def audio_in(matrixHeight, matrixWidth):
 
                 update_lights(matrix, columns, matrixHeight)
 
-                # Keep track of the last N samples to compute a running std / mean
-                #
-                # TODO(todd): Look into using this algorithm to compute this on a per sample basis:
-                # http://www.johndcook.com/blog/standard_deviation/
-                if num_samples >= 250:
-                    no_connection_ct = 0
-                    for i in range(0, matrixWidth):
-                        mean[i] = np.mean([item for item in recent_samples[:, i] if item > 0])
-                        std[i] = np.std([item for item in recent_samples[:, i] if item > 0])
-
-                        # Count how many channels are below 10, if more than 1/2, assume noise (no connection)
-                        if mean[i] < 10.0:
-                            no_connection_ct += 1
-
-                    # If more than 1/2 of the channels appear to be not connected, turn all off
-                    if no_connection_ct > matrixWidth / 2:
-                        logging.debug("no input detected, turning all lights off")
-                        mean = [20 for _ in range(matrixWidth)]
-                    else:
-                        logging.debug("std: " + str(std) + ", mean: " + str(mean))
-                    num_samples = 0
-                else:
-                    for i in range(0, matrixWidth):
-                        recent_samples[num_samples][i] = matrix[i]
-                    num_samples += 1
-
     except KeyboardInterrupt:
         pass
     finally:
@@ -218,19 +184,23 @@ def audio_in(matrixHeight, matrixWidth):
         led.update()        
         p.terminate()
 
-def initLed(matrixWidth, matrixHeight):
+def initLed(matrixWidth, matrixHeight, args):
 
     print "Pixel Count: {}".format(matrixHeight*matrixWidth)
 
-    serverIP     = '192.168.210.203'
-    #driver = DriverVisualizer(width = w, height = h, stayTop = True)
-    driver = DriverNetwork(num=matrixWidth*matrixHeight, width=matrixWidth, height=matrixHeight, host = serverIP)
-     
-    #change rotation and vert_flip as needed by your display
-    #meine Matrix mit 12 * 20 
-    led = LEDMatrix(driver, width = matrixHeight, height = matrixWidth, rotation = MatrixRotation.ROTATE_270, vert_flip = True)
-    # Matrix fuer den Visualizer
-    #led = LEDMatrix(driver, width = w, height = h, rotation = MatrixRotation.ROTATE_0, vert_flip = False)
+    if args.visualizer:
+        print "use visualizer"
+        driver = DriverVisualizer(width = matrixWidth, height = matrixHeight, stayTop = True)
+        # Matrix fuer den Visualizer
+        led = LEDMatrix(driver, width = matrixWidth, height = matrixHeight)
+    else:
+        print "use network driver"
+        serverIP     = '192.168.210.203'
+        driver = DriverNetwork(num=matrixWidth*matrixHeight, width=matrixWidth, height=matrixHeight, host = serverIP)
+        #change rotation and vert_flip as needed by your display
+        #meine Matrix mit 12 * 20 
+        led = LEDMatrix(driver, width = matrixHeight, height = matrixWidth, rotation = MatrixRotation.ROTATE_270, vert_flip = True)
+    
     led.setMasterBrightness(255)
     
     return led
@@ -240,7 +210,7 @@ if __name__ == "__main__":
 
     from bibliopixel.drivers.network import DriverNetwork
     #Load driver for your hardware, visualizer just for example
-    #from bibliopixel.drivers.visualizer import DriverVisualizer
+    from bibliopixel.drivers.visualizer import DriverVisualizer
     from bibliopixel.drivers.network import DriverNetwork
     import bibliopixel.gamma as gamma
     #load the LEDMatrix class
@@ -249,8 +219,14 @@ if __name__ == "__main__":
     matrixWidth   = 12 #12 LED bars
     matrixHeight  = 20 #20 LEDs per BAR
 
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group()
+    parser.add_argument("--visualizer", help="use the visualization driver", action="store_true")
+    parser.add_argument("--network", help="use the network driver", action="store_true")
+    args = parser.parse_args()
+    
     # initialize the LED driver
-    led = initLed(matrixWidth, matrixHeight)
+    led = initLed(matrixWidth, matrixHeight, args)
     
     # Log everything to our log file
     #logging.basicConfig(filename= 'FFT_Audio.dbg',
