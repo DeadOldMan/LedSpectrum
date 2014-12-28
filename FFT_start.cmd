@@ -1,1 +1,1 @@
-start python FFT_audio_improved.py
+start python FFT_audio_animation.py

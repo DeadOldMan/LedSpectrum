@@ -107,8 +107,7 @@ def update_lights(matrix, columns, matrixHeight):
     
     for x in range(0, len(matrix) ):
         # normalize output
-        height = matrix[x] - 9.0
-        height = height / 5
+        height = (matrix[x] - 9.0) / 5
         if height < .05:
             height = .05
         elif height > 1.0:
@@ -121,6 +120,7 @@ def update_lights(matrix, columns, matrixHeight):
             columns[x] = height
 
         numPix = int(round(height*(matrixHeight+1)))
+        #numPix = matrix[x]
 
         for y in range(matrixHeight):
             if y < int(numPix):
@@ -135,7 +135,7 @@ def audio_in(matrixHeight, matrixWidth):
     maxFrequency   = float(15000) # 15000 HZ
     chunkSize      = 2048  # Use a multiple of 8
     sampleRate     = 48000 # 48000 Hz
-    inputChannels  = 2 # 1 for mono input (audio in)
+    inputChannels  = 1 # 1 for mono input (audio in)
 
     # Open the input stream from default input device
     FORMAT = pyaudio.paInt16
