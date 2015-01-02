@@ -73,23 +73,6 @@ class Recorder:
         self.threadsDieNow=True
  
     ### MATH ###
-         
-    def fft(self,xMax, yMax):
-        data=self.audio.flatten()
- 
-        left,right=numpy.split(numpy.abs(numpy.fft.fft(data)),2)
-        ys=numpy.add(left,right[::-1])
- 
-        #FFT max values can vary widely depending on the hardware/audio setup.
-        #Take the average of the last few values which will keep everything
-        #in a "normal" range (visually speaking). Also makes it volume independent.
-        self.maxVals.append(numpy.amax(ys))
- 
-        ys = ys[:xMax]
-        m = max(100000, numpy.average(self.maxVals))
-        ys = numpy.rint(numpy.interp(ys,[0,m],[0,yMax-1]))
-        return ys
-        
     def piff(self, val, chunk_size, sample_rate):
         '''Return the power array index corresponding to a particular frequency.'''
         return int(chunk_size * val / sample_rate)
@@ -127,7 +110,30 @@ class Recorder:
             matrix[i] = numpy.log10(numpy.sum(power[self.piff(frequency_limits[i][0], self.BUFFERSIZE, self.RATE)
                                               :self.piff(frequency_limits[i][1], self.BUFFERSIZE, self.RATE):1]))
 
-        return matrix        
+        return matrix    
+
+    def calculate_channel_frequency(self, min_frequency, max_frequency, width ):
+        '''Calculate frequency values for each channel, taking into account custom settings.'''
+
+        # How many channels do we need to calculate the frequency for
+        channel_length = width
+
+        print("Calculating frequencies for %d channels." % (channel_length))
+        octaves = (numpy.log(max_frequency / min_frequency)) / numpy.log(2)
+        octaves_per_channel = octaves / channel_length
+        frequency_limits = []
+        frequency_store = []
+
+        frequency_limits.append(min_frequency)
+        for i in range(1, width + 1):
+            frequency_limits.append(frequency_limits[-1]
+                                    * 10 ** (3 / (10 * (1 / octaves_per_channel))))
+        for i in range(0, channel_length):
+            frequency_store.append((frequency_limits[i], frequency_limits[i + 1]))
+            print("channel %d is %6.2f to %6.2f " %( i, frequency_limits[i], frequency_limits[i + 1]))
+     
+
+        return frequency_store        
   
 class EQ(BaseMatrixAnim):
  
@@ -137,8 +143,7 @@ class EQ(BaseMatrixAnim):
         self.rec.setup()
         self.rec.continuousStart()
         self.colors = [colors.hue_helper(y, self.height, 0) for y in range(self.height)]
-        self.frequency_limits = self.calculate_channel_frequency(minFrequency, maxFrequency)
-        self.columns = [1.0 for y in range(self.width)]
+        self.frequency_limits = self.rec.calculate_channel_frequency(minFrequency, maxFrequency, self.width)
  
     def endRecord(self):
         self.rec.continuousEnd()
@@ -148,17 +153,11 @@ class EQ(BaseMatrixAnim):
         eq_data = self.rec.calculate_levels(self.frequency_limits, self.width)
         for x in range(self.width):
             # normalize output
-            height = (eq_data[x] - 9.0) / 5
+            height = (eq_data[x] - 10.2) / 5
             if height < .05:
                 height = .05
             elif height > 1.0:
                 height = 1.0
-
-            if height < self.columns[x]:
-                self.columns[x] *= 0.9 # decay = 0.9
-                height = self.columns[x]
-            else:
-                self.columns[x] = height
 
             numPix = int(round(height*(self.height+1)))
 
@@ -166,36 +165,41 @@ class EQ(BaseMatrixAnim):
                 if y < int(numPix):
                     led.set(x, self.height - y - 1, self.colors[y])
         
-        self._step = amt
+        self._step += amt
         
-    def calculate_channel_frequency(self, min_frequency, max_frequency ):
-        '''Calculate frequency values for each channel, taking into account custom settings.'''
+class BassPulse(BaseMatrixAnim):
+ 
+    def __init__(self, led, minFrequency, maxFrequency):
+        super(BassPulse, self).__init__(led)
+        self.rec = Recorder()
+        self.rec.setup()
+        self.rec.continuousStart()
+        self.colors = [colors.hue_helper(y, self.height, 0) for y in range(self.height)]
+        self.frequency_limits = self.rec.calculate_channel_frequency(minFrequency, maxFrequency, self.width)
+ 
+    def endRecord(self):
+        self.rec.continuousEnd()
+ 
+    def step(self, amt = 1):
+        self._led.all_off()
+        eq_data = self.rec.calculate_levels(self.frequency_limits, self.width)
+        
+        # only take bass values and draw circles with that value
+        # normalize output
+        height = (eq_data[0] - 9.0) / 5
+        if height < .05:
+            height = .05
+        elif height > 1.0:
+            height = 1.0
 
-        # How many channels do we need to calculate the frequency for
-        #logging.debug("Normal Channel Mapping is being used.")
-        channel_length = self.width
+        numPix = int(round(height*(self.height/2)))
 
-        #logging.debug("Calculating frequencies for %d channels.", channel_length)
-        octaves = (numpy.log(max_frequency / min_frequency)) / numpy.log(2)
-        #logging.debug("octaves in selected frequency range ... %s", octaves)
-        octaves_per_channel = octaves / channel_length
-        frequency_limits = []
-        frequency_store = []
-
-        frequency_limits.append(min_frequency)
-        #logging.debug("Custom channel frequencies are not being used")
-        for i in range(1, self.width + 1):
-            frequency_limits.append(frequency_limits[-1]
-                                    * 10 ** (3 / (10 * (1 / octaves_per_channel))))
-        for i in range(0, channel_length):
-            frequency_store.append((frequency_limits[i], frequency_limits[i + 1]))
-            #logging.debug("channel %d is %6.2f to %6.2f ", i, frequency_limits[i],
-            #              frequency_limits[i + 1])
-            print("channel %d is %6.2f to %6.2f " %( i, frequency_limits[i], frequency_limits[i + 1]))
-     
-
-        return frequency_store
-             
+        for y in range(self.height):
+            if y < int(numPix):
+                led.drawCircle(self.width/2, self.height/2, y, self.colors[y*2])
+        
+        self._step += amt
+   
  
 #Load driver for your hardware, visualizer just for example
 from bibliopixel.drivers.visualizer import DriverVisualizer
@@ -231,9 +235,15 @@ minFrequency   = float(50) # 50 Hz
 maxFrequency   = float(15000) # 15000 HZ
 
 try:
+    # Equalizer/Spectrum Animation
     anim = EQ(led, minFrequency, maxFrequency)
-    anim.run(fps=30)
+    anim.run(fps=20, max_steps = 20 * 60) # 1 minute animation
+    # Bass based pulse animation
+    anim = BassPulse(led, minFrequency, maxFrequency)
+    anim.run(fps=20, max_steps = 20 * 60) # 1 minute animation
 except KeyboardInterrupt:
-    anim.endRecord()
-    led.all_off()
-    led.update()
+    pass
+    
+anim.endRecord()
+led.all_off()
+led.update()
